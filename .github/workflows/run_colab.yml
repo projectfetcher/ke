@@ -1,0 +1,73 @@
+name: Run Colab Notebook
+
+on:
+  schedule:
+    - cron: "0 */2 * * *"   # Every 2 hours
+  workflow_dispatch:          # Also allow manual trigger from GitHub UI
+
+jobs:
+  run-colab:
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── 1. Checkout your repo ──────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. Set up Python ───────────────────────────────────────────────────
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # ── 3. Install Chrome + ChromeDriver ──────────────────────────────────
+      - name: Install Google Chrome
+        run: |
+          wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+          echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" | \
+            sudo tee /etc/apt/sources.list.d/google-chrome.list
+          sudo apt-get update -q
+          sudo apt-get install -y google-chrome-stable
+
+      - name: Install ChromeDriver (matching Chrome version)
+        run: |
+          CHROME_VERSION=$(google-chrome --version | grep -oP '\d+\.\d+\.\d+\.\d+')
+          CHROME_MAJOR=$(echo $CHROME_VERSION | cut -d. -f1)
+          echo "Chrome version: $CHROME_VERSION (major: $CHROME_MAJOR)"
+
+          # For Chrome 115+ use the new Chrome for Testing endpoint
+          if [ "$CHROME_MAJOR" -ge 115 ]; then
+            DRIVER_URL=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/LATEST_RELEASE_${CHROME_MAJOR}")
+            wget -q "https://storage.googleapis.com/chrome-for-testing-public/${DRIVER_URL}/linux64/chromedriver-linux64.zip"
+            unzip -q chromedriver-linux64.zip
+            sudo mv chromedriver-linux64/chromedriver /usr/bin/chromedriver
+          else
+            DRIVER_VERSION=$(curl -s "https://chromedriver.storage.googleapis.com/LATEST_RELEASE_${CHROME_MAJOR}")
+            wget -q "https://chromedriver.storage.googleapis.com/${DRIVER_VERSION}/chromedriver_linux64.zip"
+            unzip -q chromedriver_linux64.zip
+            sudo mv chromedriver /usr/bin/chromedriver
+          fi
+
+          sudo chmod +x /usr/bin/chromedriver
+          chromedriver --version
+
+      # ── 4. Install Python dependencies ────────────────────────────────────
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      # ── 5. Run the Colab automation script ────────────────────────────────
+      - name: Run Colab notebook
+        env:
+          GOOGLE_EMAIL: ${{ secrets.GOOGLE_EMAIL }}
+          GOOGLE_PASSWORD: ${{ secrets.GOOGLE_PASSWORD }}
+          NOTEBOOK_URL: ${{ secrets.NOTEBOOK_URL }}
+        run: python colab_runner.py
+
+      # ── 6. Upload screenshots (always, even on failure) ───────────────────
+      - name: Upload debug screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots-${{ github.run_number }}
+          path: "*.png"
+          retention-days: 7
