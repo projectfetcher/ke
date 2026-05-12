@@ -13,8 +13,8 @@ from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 
 # ==================== YOUR CREDENTIALS ====================
-GOOGLE_EMAIL    = "xxxx@gmail.com"      # ← change this
-GOOGLE_PASSWORD = "xxxx"                # ← change this
+GOOGLE_EMAIL    = "calolinalindas@gmail.com"      # ← change this
+GOOGLE_PASSWORD = "kate@kunda30"                # ← change this
 
 # ==================== NOTEBOOK URL ====================
 NOTEBOOK_URL = "https://colab.research.google.com/drive/1mRtVy4DOJvfP0KgCjxXgsk1yCcE3hHBG?usp=sharing"
