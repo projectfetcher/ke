@@ -19,7 +19,7 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install Chrome (no chromedriver package needed)
+      - name: Install Chrome
         run: |
           sudo apt-get update -q
           sudo apt-get install -y -q google-chrome-stable
@@ -28,12 +28,17 @@ jobs:
       - name: Install Python deps
         run: pip install selenium webdriver-manager
 
+      - name: Show working directory (debug)
+        run: |
+          pwd
+          ls -la
+
       - name: Run Colab notebook
         env:
           GOOGLE_EMAIL:        ${{ secrets.GOOGLE_EMAIL }}
           GOOGLE_APP_PASSWORD: ${{ secrets.GOOGLE_APP_PASSWORD }}
           NOTEBOOK_URL:        ${{ secrets.NOTEBOOK_URL }}
-        run: python run_colab.py
+        run: python ${{ github.workspace }}/run_colab.py
 
       - name: Upload screenshots
         if: always()
