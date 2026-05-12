@@ -8,10 +8,10 @@ on:
 jobs:
   run-notebook:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
-      - name: Checkout repo
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -25,19 +25,20 @@ jobs:
         run: |
           sudo apt-get update -q
           sudo apt-get install -y -q google-chrome-stable
+          echo "Chrome version:"
           google-chrome --version
 
       - name: Install Python dependencies
         run: pip install -r requirements.txt
 
-      - name: Debug - List files
+      - name: Debug - Show files
         run: |
           echo "Current directory: $(pwd)"
           echo "GITHUB_WORKSPACE: $GITHUB_WORKSPACE"
-          echo "=== Files in workspace ==="
+          echo "=== All files ==="
           ls -la
-          echo "=== Python files found ==="
-          find . -name "*.py" | sort
+          echo "=== Python files ==="
+          find . -name "*.py" -o -name "*.yml" | sort
 
       - name: Run Colab notebook
         env:
@@ -45,5 +46,5 @@ jobs:
           GOOGLE_APP_PASSWORD: ${{ secrets.GOOGLE_APP_PASSWORD }}
           NOTEBOOK_URL: ${{ secrets.NOTEBOOK_URL }}
         run: |
-          echo "Running run_colab.py..."
+          echo "Starting run_colab.py..."
           python run_colab.py
