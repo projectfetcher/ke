@@ -1,3 +1,6 @@
+# ====================== INSTALL ======================
+# pip install selenium webdriver-manager
+
 import time
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -10,38 +13,46 @@ from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 
 # ==================== YOUR CREDENTIALS ====================
-GOOGLE_EMAIL    = "calolinalindas@gmail.com"      # ← change this
-GOOGLE_PASSWORD = "kate@kunda30"       # ← change this
+GOOGLE_EMAIL    = "xxxx@gmail.com"      # ← change this
+GOOGLE_PASSWORD = "xxxx"                # ← change this
 
-# ==================== DRIVER ====================
+# ==================== NOTEBOOK URL ====================
+NOTEBOOK_URL = "https://colab.research.google.com/drive/1mRtVy4DOJvfP0KgCjxXgsk1yCcE3hHBG?usp=sharing"
+
+# ==================== DRIVER (HEADLESS) ====================
 def get_driver():
     options = Options()
+    options.add_argument("--headless=new")                        # ← headless, no window
+    options.add_argument("--no-sandbox")                          # required in CI/Linux
+    options.add_argument("--disable-dev-shm-usage")               # required in CI/Linux
+    options.add_argument("--disable-gpu")                         # required headless
+    options.add_argument("--window-size=1920,1080")               # simulate real screen
     options.add_argument("--disable-notifications")
     options.add_argument("--disable-blink-features=AutomationControlled")
-    options.add_argument("--start-maximized")
+    options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    options.add_experimental_option("useAutomationExtension", False)
     service = Service(ChromeDriverManager().install())
-    return webdriver.Chrome(service=service, options=options)
+    driver = webdriver.Chrome(service=service, options=options)
+    driver.execute_cdp_cmd(
+        "Page.addScriptToEvaluateOnNewDocument",
+        {"source": "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"}
+    )
+    return driver
 
 # ==================== HELPER: CLICK RUN ANYWAY ====================
 def click_run_anyway(driver):
     print("   🔍 Checking for 'Run anyway' popup...")
     try:
-        # Wait for the dialog to appear
         WebDriverWait(driver, 5).until(
             EC.presence_of_element_located((By.CSS_SELECTOR, "mwc-dialog"))
         )
-
-        # Navigate shadow DOM: mwc-dialog > md-text-button > shadow #button
         btn = driver.execute_script("""
             const dialog = document.querySelector('mwc-dialog');
             if (!dialog) return null;
-
             const mdBtn = dialog.querySelector('md-text-button:nth-child(3)');
             if (!mdBtn) return null;
-
             return mdBtn.shadowRoot.querySelector('#button');
         """)
-
         if btn:
             driver.execute_script("arguments[0].click();", btn)
             print("   ✅ 'Run anyway' clicked!")
@@ -53,32 +64,33 @@ def click_run_anyway(driver):
             driver.execute_script("arguments[0].click();", host)
             print("   ✅ 'Run anyway' clicked via fallback!")
             time.sleep(2)
-
     except Exception as e:
         print(f"   ℹ️  No popup detected, continuing... ({type(e).__name__})")
 
-# ====================== CONFIG ======================
-NOTEBOOK_URL = "https://colab.research.google.com/drive/1mRtVy4DOJvfP0KgCjxXgsk1yCcE3hHBG?usp=sharing"
-
+# ==================== MAIN ====================
 driver = None
 try:
-    print("🌐 Launching Chrome...")
+    print("🌐 Launching headless Chrome...")
     driver = get_driver()
 
-    # ====================== LOGIN ======================
+    # ── LOGIN ──────────────────────────────────────────────
     print("🔐 Navigating to Google login...")
     driver.get("https://accounts.google.com/signin")
     time.sleep(3)
 
     print("📧 Entering email...")
-    email_field = driver.find_element(By.ID, "identifierId")
+    email_field = WebDriverWait(driver, 10).until(
+        EC.presence_of_element_located((By.ID, "identifierId"))
+    )
     email_field.click()
     email_field.send_keys(GOOGLE_EMAIL)
     email_field.send_keys(Keys.RETURN)
     time.sleep(3)
 
     print("🔑 Entering password...")
-    password_field = driver.find_element(By.NAME, "Passwd")
+    password_field = WebDriverWait(driver, 10).until(
+        EC.presence_of_element_located((By.NAME, "Passwd"))
+    )
     password_field.click()
     password_field.send_keys(GOOGLE_PASSWORD)
     password_field.send_keys(Keys.RETURN)
@@ -86,23 +98,30 @@ try:
     print("⏳ Waiting for login to complete...")
     time.sleep(8)
 
+    # In headless mode Google may block login with a verification page.
+    # If this happens you will see it in the saved screenshot below.
+    driver.save_screenshot("after_login.png")
+    print(f"📸 Screenshot saved → after_login.png  (current URL: {driver.current_url})")
+
     if "accounts.google.com" in driver.current_url:
-        print("⚠️  Google needs extra verification (2FA, captcha, etc.)")
-        input("👉 Complete it manually in the browser, then press ENTER here...")
-        time.sleep(3)
+        print("❌ Still on accounts.google.com — Google may have blocked headless login.")
+        print("   Tip: run once in non-headless mode first to pass any verification,")
+        print("   then re-enable headless.  Exiting.")
+        raise SystemExit(1)
 
     print("✅ Logged in!\n")
 
-    # ====================== OPEN NOTEBOOK ======================
+    # ── OPEN NOTEBOOK ──────────────────────────────────────
     print("📂 Opening Colab notebook...")
     driver.get(NOTEBOOK_URL)
-
-    print("⏳ Waiting 15 seconds for notebook to load...")
+    print("⏳ Waiting 15 s for notebook to load...")
     time.sleep(15)
-    print(f"✅ Title: {driver.title}\n")
+    driver.save_screenshot("after_notebook_load.png")
+    print(f"✅ Title: {driver.title}")
+    print("📸 Screenshot saved → after_notebook_load.png\n")
 
-    # ====================== CLICK RUN BUTTONS ======================
-    print("🔍 Finding colab-run-button...")
+    # ── CLICK EACH CELL RUN BUTTON ─────────────────────────
+    print("🔍 Finding colab-run-button elements...")
     run_buttons = driver.find_elements(By.CSS_SELECTOR, "colab-run-button")
     print(f"✅ Found {len(run_buttons)} button(s)\n")
 
@@ -142,30 +161,36 @@ try:
             except Exception as e:
                 print(f"   ⚠️  All methods failed for Cell {i}: {e}")
 
-        # ✅ Handle "Run anyway" popup right after clicking
         if clicked:
             click_run_anyway(driver)
-
         time.sleep(2)
 
-    # ====================== BACKUP: Run All ======================
+    # ── BACKUP: RUN ALL ────────────────────────────────────
     print("\n" + "=" * 60)
-    print("🔄 Sending 'Run All' (Ctrl + Shift + F9)...")
+    print("🔄 Sending 'Run All' (Ctrl+Shift+F9)...")
     print("=" * 60)
-    actions = ActionChains(driver)
-    actions.key_down(Keys.CONTROL).key_down(Keys.SHIFT).send_keys(Keys.F9) \
-           .key_up(Keys.SHIFT).key_up(Keys.CONTROL).perform()
+    ActionChains(driver) \
+        .key_down(Keys.CONTROL).key_down(Keys.SHIFT) \
+        .send_keys(Keys.F9) \
+        .key_up(Keys.SHIFT).key_up(Keys.CONTROL) \
+        .perform()
     time.sleep(2)
     click_run_anyway(driver)
-
     print("✅ 'Run All' sent!")
-    print("\n🟢 Done! Watch the browser to confirm cells are running...")
 
+    driver.save_screenshot("after_run_all.png")
+    print("📸 Screenshot saved → after_run_all.png")
+    print("\n🟢 Done!")
+
+except SystemExit as e:
+    raise
 except Exception as e:
     print(f"\n❌ ERROR: {type(e).__name__}: {e}")
+    if driver:
+        driver.save_screenshot("error_screenshot.png")
+        print("📸 Error screenshot saved → error_screenshot.png")
 
 finally:
-    input("\n🔴 Press ENTER to close the browser...")
     try:
         if driver:
             driver.quit()
