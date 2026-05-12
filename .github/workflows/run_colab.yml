@@ -13,6 +13,8 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -25,31 +27,23 @@ jobs:
           sudo apt-get install -y -q google-chrome-stable
           google-chrome --version
 
-      - name: Install Python deps
+      - name: Install Python dependencies
         run: pip install -r requirements.txt
 
-      - name: Debug — show workspace
+      - name: Debug - List files
         run: |
-          echo "PWD: $(pwd)"
-          echo "WORKSPACE: $GITHUB_WORKSPACE"
-          echo "Files in workspace:"
-          ls -la $GITHUB_WORKSPACE
-          echo "Files in pwd:"
+          echo "Current directory: $(pwd)"
+          echo "GITHUB_WORKSPACE: $GITHUB_WORKSPACE"
+          echo "=== Files in workspace ==="
           ls -la
+          echo "=== Python files found ==="
+          find . -name "*.py" | sort
 
       - name: Run Colab notebook
         env:
-          GOOGLE_EMAIL:        ${{ secrets.GOOGLE_EMAIL }}
+          GOOGLE_EMAIL: ${{ secrets.GOOGLE_EMAIL }}
           GOOGLE_APP_PASSWORD: ${{ secrets.GOOGLE_APP_PASSWORD }}
-          NOTEBOOK_URL:        ${{ secrets.NOTEBOOK_URL }}
+          NOTEBOOK_URL: ${{ secrets.NOTEBOOK_URL }}
         run: |
-          cd $GITHUB_WORKSPACE
+          echo "Running run_colab.py..."
           python run_colab.py
-
-      - name: Upload screenshots
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: screenshots
-          path: "${{ github.workspace }}/*.png"
-          retention-days: 7
