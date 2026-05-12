@@ -22,15 +22,16 @@ NOTEBOOK_URL = "https://colab.research.google.com/drive/1mRtVy4DOJvfP0KgCjxXgsk1
 # ==================== DRIVER (HEADLESS) ====================
 def get_driver():
     options = Options()
-    options.add_argument("--headless=new")                        # ← headless, no window
-    options.add_argument("--no-sandbox")                          # required in CI/Linux
-    options.add_argument("--disable-dev-shm-usage")               # required in CI/Linux
-    options.add_argument("--disable-gpu")                         # required headless
-    options.add_argument("--window-size=1920,1080")               # simulate real screen
+    options.add_argument("--headless=new")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--window-size=1920,1080")
     options.add_argument("--disable-notifications")
     options.add_argument("--disable-blink-features=AutomationControlled")
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
     options.add_experimental_option("useAutomationExtension", False)
+    options.add_argument("--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
     service = Service(ChromeDriverManager().install())
     driver = webdriver.Chrome(service=service, options=options)
     driver.execute_cdp_cmd(
@@ -38,7 +39,22 @@ def get_driver():
         {"source": "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"}
     )
     return driver
-
+ 
+# ==================== HELPER: FIND ELEMENT (multiple selectors) ====================
+def find_any(driver, selectors, timeout=15):
+    """Try multiple selectors until one is found and visible."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        for by, val in selectors:
+            try:
+                el = driver.find_element(by, val)
+                if el.is_displayed():
+                    return el
+            except:
+                pass
+        time.sleep(0.5)
+    raise TimeoutError(f"None of these selectors found in {timeout}s: {selectors}")
+ 
 # ==================== HELPER: CLICK RUN ANYWAY ====================
 def click_run_anyway(driver):
     print("   🔍 Checking for 'Run anyway' popup...")
@@ -58,97 +74,118 @@ def click_run_anyway(driver):
             print("   ✅ 'Run anyway' clicked!")
             time.sleep(2)
         else:
-            print("   ⚠️  Trying fallback — clicking host element...")
             host = driver.find_element(By.CSS_SELECTOR,
                 "body > mwc-dialog > md-text-button:nth-child(3)")
             driver.execute_script("arguments[0].click();", host)
             print("   ✅ 'Run anyway' clicked via fallback!")
             time.sleep(2)
     except Exception as e:
-        print(f"   ℹ️  No popup detected, continuing... ({type(e).__name__})")
-
+        print(f"   ℹ️  No popup detected ({type(e).__name__})")
+ 
 # ==================== MAIN ====================
 driver = None
 try:
     print("🌐 Launching headless Chrome...")
     driver = get_driver()
-
-    # ── LOGIN ──────────────────────────────────────────────
+ 
+    # ── STEP 1: EMAIL ──────────────────────────────────────
     print("🔐 Navigating to Google login...")
-    driver.get("https://accounts.google.com/signin")
-    time.sleep(3)
-
+    driver.get("https://accounts.google.com/signin/v2/identifier?flowName=GlifWebSignIn&flowEntry=ServiceLogin")
+    time.sleep(4)
+    driver.save_screenshot("step1_login_page.png")
+    print(f"   URL: {driver.current_url}")
+ 
     print("📧 Entering email...")
-    email_field = WebDriverWait(driver, 10).until(
-        EC.presence_of_element_located((By.ID, "identifierId"))
-    )
+    email_field = find_any(driver, [
+        (By.ID,           "identifierId"),
+        (By.NAME,         "identifier"),
+        (By.CSS_SELECTOR, "input[type='email']"),
+    ])
     email_field.click()
+    time.sleep(0.5)
     email_field.send_keys(GOOGLE_EMAIL)
-    email_field.send_keys(Keys.RETURN)
-    time.sleep(3)
-
+    time.sleep(0.5)
+ 
+    next_btn = find_any(driver, [
+        (By.ID,           "identifierNext"),
+        (By.CSS_SELECTOR, "button[jsname='LgbsSe']"),
+        (By.XPATH,        "//button[contains(.,'Next')]"),
+        (By.XPATH,        "//span[text()='Next']/ancestor::button"),
+    ])
+    driver.execute_script("arguments[0].click();", next_btn)
+    print("   ✅ Email submitted, waiting for password screen...")
+    time.sleep(4)
+    driver.save_screenshot("step2_after_email.png")
+ 
+    # ── STEP 2: PASSWORD ───────────────────────────────────
     print("🔑 Entering password...")
-    password_field = WebDriverWait(driver, 10).until(
-        EC.presence_of_element_located((By.NAME, "Passwd"))
-    )
+    password_field = find_any(driver, [
+        (By.NAME,         "Passwd"),
+        (By.NAME,         "password"),
+        (By.CSS_SELECTOR, "input[type='password']"),
+        (By.XPATH,        "//input[@type='password']"),
+    ])
     password_field.click()
+    time.sleep(0.5)
     password_field.send_keys(GOOGLE_PASSWORD)
-    password_field.send_keys(Keys.RETURN)
-
-    print("⏳ Waiting for login to complete...")
+    time.sleep(0.5)
+ 
+    signin_btn = find_any(driver, [
+        (By.ID,           "passwordNext"),
+        (By.CSS_SELECTOR, "button[jsname='LgbsSe']"),
+        (By.XPATH,        "//button[contains(.,'Next')]"),
+        (By.XPATH,        "//span[text()='Next']/ancestor::button"),
+    ])
+    driver.execute_script("arguments[0].click();", signin_btn)
+    print("   ✅ Password submitted, waiting for redirect...")
     time.sleep(8)
-
-    # In headless mode Google may block login with a verification page.
-    # If this happens you will see it in the saved screenshot below.
-    driver.save_screenshot("after_login.png")
-    print(f"📸 Screenshot saved → after_login.png  (current URL: {driver.current_url})")
-
+    driver.save_screenshot("step3_after_password.png")
+    print(f"   URL: {driver.current_url}")
+ 
+    # ── STEP 3: CHECK LOGIN SUCCESS ────────────────────────
     if "accounts.google.com" in driver.current_url:
-        print("❌ Still on accounts.google.com — Google may have blocked headless login.")
-        print("   Tip: run once in non-headless mode first to pass any verification,")
-        print("   then re-enable headless.  Exiting.")
+        print("❌ Still on Google accounts page — possible causes:")
+        print("   • Wrong credentials")
+        print("   • Google blocked headless login (check step3_after_password.png)")
+        print("   • 2FA required")
         raise SystemExit(1)
-
+ 
     print("✅ Logged in!\n")
-
-    # ── OPEN NOTEBOOK ──────────────────────────────────────
+ 
+    # ── STEP 4: OPEN NOTEBOOK ──────────────────────────────
     print("📂 Opening Colab notebook...")
     driver.get(NOTEBOOK_URL)
-    print("⏳ Waiting 15 s for notebook to load...")
-    time.sleep(15)
-    driver.save_screenshot("after_notebook_load.png")
-    print(f"✅ Title: {driver.title}")
-    print("📸 Screenshot saved → after_notebook_load.png\n")
-
-    # ── CLICK EACH CELL RUN BUTTON ─────────────────────────
+    print("⏳ Waiting 20s for notebook to load...")
+    time.sleep(20)
+    driver.save_screenshot("step4_notebook.png")
+    print(f"✅ Title: {driver.title}\n")
+ 
+    # ── STEP 5: CLICK EACH CELL ────────────────────────────
     print("🔍 Finding colab-run-button elements...")
     run_buttons = driver.find_elements(By.CSS_SELECTOR, "colab-run-button")
     print(f"✅ Found {len(run_buttons)} button(s)\n")
-
+ 
     for i, btn in enumerate(run_buttons, 1):
         print(f"\n▶️  Clicking Cell {i}...")
         clicked = False
-
-        # Method 1: shadow root
+ 
         try:
             shadow = btn.shadow_root
             play = shadow.find_element(By.CSS_SELECTOR, "#filledCircle, svg, circle, span")
             driver.execute_script("arguments[0].click();", play)
-            print(f"   ✅ Cell {i} clicked via shadow root!")
+            print(f"   ✅ Cell {i} via shadow root!")
             clicked = True
         except Exception as e:
             print(f"   ⚠️  Method 1 failed: {e}")
-
-        # Method 2: direct JS click
+ 
         if not clicked:
             try:
                 driver.execute_script("arguments[0].click();", btn)
-                print(f"   ✅ Cell {i} clicked via JS!")
+                print(f"   ✅ Cell {i} via JS click!")
                 clicked = True
             except Exception as e:
                 print(f"   ⚠️  Method 2 failed: {e}")
-
-        # Method 3: dispatchEvent
+ 
         if not clicked:
             try:
                 driver.execute_script("""
@@ -156,19 +193,18 @@ try:
                         bubbles: true, cancelable: true, view: window
                     }));
                 """, btn)
-                print(f"   ✅ Cell {i} clicked via dispatchEvent!")
+                print(f"   ✅ Cell {i} via dispatchEvent!")
                 clicked = True
             except Exception as e:
                 print(f"   ⚠️  All methods failed for Cell {i}: {e}")
-
+ 
         if clicked:
             click_run_anyway(driver)
         time.sleep(2)
-
-    # ── BACKUP: RUN ALL ────────────────────────────────────
+ 
+    # ── STEP 6: RUN ALL fallback ───────────────────────────
     print("\n" + "=" * 60)
-    print("🔄 Sending 'Run All' (Ctrl+Shift+F9)...")
-    print("=" * 60)
+    print("🔄 Sending Ctrl+Shift+F9 (Run All)...")
     ActionChains(driver) \
         .key_down(Keys.CONTROL).key_down(Keys.SHIFT) \
         .send_keys(Keys.F9) \
@@ -176,20 +212,20 @@ try:
         .perform()
     time.sleep(2)
     click_run_anyway(driver)
-    print("✅ 'Run All' sent!")
-
-    driver.save_screenshot("after_run_all.png")
-    print("📸 Screenshot saved → after_run_all.png")
+    print("✅ Run All sent!")
+ 
+    driver.save_screenshot("step5_after_run.png")
+    print("📸 step5_after_run.png saved")
     print("\n🟢 Done!")
-
-except SystemExit as e:
+ 
+except SystemExit:
     raise
 except Exception as e:
     print(f"\n❌ ERROR: {type(e).__name__}: {e}")
     if driver:
         driver.save_screenshot("error_screenshot.png")
-        print("📸 Error screenshot saved → error_screenshot.png")
-
+        print("📸 error_screenshot.png saved")
+ 
 finally:
     try:
         if driver:
