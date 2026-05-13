@@ -20,31 +20,29 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
-      - name: Install Chrome
+ 
+      - name: Install dependencies
         run: |
-          sudo apt-get update -q
-          sudo apt-get install -y -q google-chrome-stable
-          echo "Chrome version:"
-          google-chrome --version
-
-      - name: Install Python dependencies
-        run: pip install -r requirements.txt
-
-      - name: Debug - Show files
+          pip install --upgrade pip
+          pip install -r requirements.txt
+ 
+      - name: Download NLTK data
         run: |
-          echo "Current directory: $(pwd)"
-          echo "GITHUB_WORKSPACE: $GITHUB_WORKSPACE"
-          echo "=== All files ==="
+          python -c "
+          import nltk
+          nltk.download('punkt_tab', quiet=True)
+          nltk.download('averaged_perceptron_tagger', quiet=True)
+          print('NLTK data ready.')
+          "
+ 
+      - name: Debug — show files
+        run: |
+          echo "=== Working directory ==="
+          pwd
+          echo "=== Files ==="
           ls -la
           echo "=== Python files ==="
-          find . -name "*.py" -o -name "*.yml" | sort
-
-      - name: Run Colab notebook
-        env:
-          GOOGLE_EMAIL: ${{ secrets.GOOGLE_EMAIL }}
-          GOOGLE_APP_PASSWORD: ${{ secrets.GOOGLE_APP_PASSWORD }}
-          NOTEBOOK_URL: ${{ secrets.NOTEBOOK_URL }}
+          find . -name "*.py" | sort
         run: |
           echo "Starting run_colab.py..."
           python run_colab.py
