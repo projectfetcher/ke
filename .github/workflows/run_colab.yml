@@ -1,4 +1,4 @@
-name: Run Colab Notebook
+name: Run Kenya MimusJobs
 
 on:
   schedule:
@@ -6,43 +6,33 @@ on:
   workflow_dispatch:
 
 jobs:
-  run-notebook:
+  run-jobs:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 60
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
- 
+
       - name: Install dependencies
-        run: |
-          pip install --upgrade pip
-          pip install -r requirements.txt
- 
+        run: pip install -r requirements.txt
+
       - name: Download NLTK data
         run: |
-          python -c "
-          import nltk
-          nltk.download('punkt_tab', quiet=True)
-          nltk.download('averaged_perceptron_tagger', quiet=True)
-          print('NLTK data ready.')
-          "
- 
-      - name: Debug — show files
-        run: |
-          echo "=== Working directory ==="
-          pwd
-          echo "=== Files ==="
-          ls -la
-          echo "=== Python files ==="
-          find . -name "*.py" | sort
-        run: |
-          echo "Starting run_colab.py..."
-          python run_colab.py
+          python -c "import nltk; nltk.download('punkt_tab', quiet=True); nltk.download('averaged_perceptron_tagger', quiet=True)"
+
+      - name: Run job script
+        run: python kenya_mimusjobs_mistral_v2.py
+
+      - name: Upload tracker CSV
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: processed-jobs-tracker
+          path: kenya_processed_job_ids.csv
+          retention-days: 30
