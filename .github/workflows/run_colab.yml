@@ -8,7 +8,14 @@ on:
 jobs:
   run-jobs:
     runs-on: ubuntu-latest
-    
+
+    # === THIS IS THE IMPORTANT PART ===
+    env:
+      MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+      SHEET_ID: ${{ secrets.SHEET_ID }}
+      WP_BASE_URL: ${{ secrets.WP_BASE_URL }}
+      WP_USERNAME: ${{ secrets.WP_USERNAME }}
+      WP_APP_PASSWORD: ${{ secrets.WP_APP_PASSWORD }}
 
     steps:
       - name: Checkout repository
