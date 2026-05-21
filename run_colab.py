@@ -59,54 +59,60 @@ logger = logging.getLogger(__name__)
 
 
 # ════════════════════════════════════════════════════════════════════════════
-#  STEP 3 — Mistral API setup  ← replaces local GGUF model entirely
+#  STEP 3 — Secrets & Configuration
+#
+#  HOW TO SET SECRETS IN GOOGLE COLAB:
+#  1. Click the 🔑 key icon in the left sidebar (or go to Tools → Secrets)
+#  2. Add each secret by name and value
+#  3. Enable notebook access for each secret
+#
+#  Required secrets:
+#  ┌─────────────────────────┬──────────────────────────────────────────────┐
+#  │ Secret Name             │ Value                                        │
+#  ├─────────────────────────┼──────────────────────────────────────────────┤
+#  │ MISTRAL_API_KEY         │ Your Mistral API key                         │
+#  │ SHEET_ID                │ Google Sheet ID from the URL                 │
+#  │ WP_BASE_URL             │ e.g. https://yoursite.com/wp-json/wp/v2      │
+#  │ WP_USERNAME             │ Your WordPress username                      │
+#  │ WP_APP_PASSWORD         │ Your WordPress application password          │
+#  └─────────────────────────┴──────────────────────────────────────────────┘
 # ════════════════════════════════════════════════════════════════════════════
 
-MISTRAL_API_KEY = "cmQo3yPkhr8gmJUsV7Mr3wltVBNAHGwU"   # ← paste your key here
-MISTRAL_MODEL   = "mistral-small-latest"         # free tier model
-MISTRAL_URL     = "https://api.mistral.ai/v1/chat/completions"
+from google.colab import userdata
 
-def mistral_generate(prompt: str, max_tokens: int = 400, temperature: float = 0.7) -> str:
-    """Call Mistral API and return the generated text."""
+def get_secret(name: str, fallback: str = "") -> str:
+    """Read a secret from Colab Secrets, with an optional fallback."""
     try:
-        response = requests.post(
-            MISTRAL_URL,
-            headers={
-                "Authorization": f"Bearer {MISTRAL_API_KEY}",
-                "Content-Type":  "application/json",
-            },
-            json={
-                "model":       MISTRAL_MODEL,
-                "messages":    [{"role": "user", "content": prompt}],
-                "max_tokens":  max_tokens,
-                "temperature": temperature,
-            },
-            timeout=30,
-        )
-        response.raise_for_status()
-        return response.json()["choices"][0]["message"]["content"].strip()
-    except Exception as e:
-        logger.error(f"Mistral API error: {e}")
-        return ""
+        val = userdata.get(name)
+        if val:
+            return val.strip()
+    except Exception:
+        pass
+    if fallback:
+        return fallback
+    raise EnvironmentError(
+        f"\n❌ Secret '{name}' not found.\n"
+        f"   Go to 🔑 Secrets in the left sidebar and add it.\n"
+    )
 
-print("✅ Mistral API configured — no model download needed.\n")
+# ── Load all secrets ──────────────────────────────────────────────────────
+MISTRAL_API_KEY  = get_secret("MISTRAL_API_KEY")
+MISTRAL_MODEL    = "mistral-small-latest"
+MISTRAL_URL      = "https://api.mistral.ai/v1/chat/completions"
 
+SHEET_ID         = get_secret("SHEET_ID")
+SHEET_GID        = "0"
 
-# ════════════════════════════════════════════════════════════════════════════
-#  STEP 4 — Configuration
-# ════════════════════════════════════════════════════════════════════════════
+_WP_BASE         = get_secret("WP_BASE_URL")   # e.g. https://yoursite.com/wp-json/wp/v2
+WP_BASE          = _WP_BASE.rstrip("/")
+WP_URL           = f"{WP_BASE}/job-listings"
+WP_COMPANY_URL   = f"{WP_BASE}/companies"
+WP_MEDIA_URL     = f"{WP_BASE}/media"
+WP_USERNAME      = get_secret("WP_USERNAME")
+WP_APP_PASSWORD  = get_secret("WP_APP_PASSWORD")
 
-SHEET_ID  = "1z5sCu0wTBkDSHJRWoMZ1jlNd0ExJodzgb7jj4F0XZe0"
-SHEET_GID = "0"
-
-WP_BASE         = "https://kenya.mimusjobs.com/wp-json/wp/v2"
-WP_URL          = f"{WP_BASE}/job-listings"
-WP_COMPANY_URL  = f"{WP_BASE}/companies"
-WP_MEDIA_URL    = f"{WP_BASE}/media"
-WP_USERNAME     = "calolina"
-WP_APP_PASSWORD = "2IJ6 DRql ivkQ uH19 h9cG Zide"
-
-PROCESSED_IDS_FILE = "kenya_processed_job_ids.csv"
+# ── Non-sensitive config ──────────────────────────────────────────────────
+PROCESSED_IDS_FILE = "nigeria_processed_job_ids.csv"
 
 JOB_TYPE_MAPPING = {
     "full-time":  "full-time",  "full time":  "full-time",  "fulltime":    "full-time",
@@ -118,9 +124,11 @@ JOB_TYPE_MAPPING = {
     "volunteer":  "volunteer",
 }
 
+print("✅ Secrets loaded successfully.\n")
+
 
 # ════════════════════════════════════════════════════════════════════════════
-#  STEP 5 — Column definitions
+#  STEP 4 — Column definitions
 # ════════════════════════════════════════════════════════════════════════════
 
 APPSCRIPT_COLUMNS = [
@@ -134,7 +142,7 @@ APPSCRIPT_COLUMNS = [
 
 
 # ════════════════════════════════════════════════════════════════════════════
-#  STEP 6 — Google Sheet reader
+#  STEP 5 — Google Sheet reader
 # ════════════════════════════════════════════════════════════════════════════
 
 def fetch_sheet_as_df(sheet_id: str, gid: str = "0") -> pd.DataFrame:
@@ -226,7 +234,7 @@ def print_column_mapping(df: pd.DataFrame):
 
 
 # ════════════════════════════════════════════════════════════════════════════
-#  STEP 7 — Utilities
+#  STEP 6 — Utilities
 # ════════════════════════════════════════════════════════════════════════════
 
 grammar_tool     = language_tool_python.LanguageTool(
@@ -301,7 +309,7 @@ def make_job_id(row: pd.Series, idx: int) -> str:
 
 
 # ════════════════════════════════════════════════════════════════════════════
-#  STEP 8 — Duplicate tracker
+#  STEP 7 — Duplicate tracker
 # ════════════════════════════════════════════════════════════════════════════
 
 def _init_tracker():
@@ -364,7 +372,34 @@ def print_tracker_summary():
 
 
 # ════════════════════════════════════════════════════════════════════════════
-#  STEP 9 — Paraphrase functions  (powered by Mistral API)
+#  STEP 8 — Mistral API
+# ════════════════════════════════════════════════════════════════════════════
+
+def mistral_generate(prompt: str, max_tokens: int = 400, temperature: float = 0.7) -> str:
+    try:
+        response = requests.post(
+            MISTRAL_URL,
+            headers={
+                "Authorization": f"Bearer {MISTRAL_API_KEY}",
+                "Content-Type":  "application/json",
+            },
+            json={
+                "model":       MISTRAL_MODEL,
+                "messages":    [{"role": "user", "content": prompt}],
+                "max_tokens":  max_tokens,
+                "temperature": temperature,
+            },
+            timeout=30,
+        )
+        response.raise_for_status()
+        return response.json()["choices"][0]["message"]["content"].strip()
+    except Exception as e:
+        logger.error(f"Mistral API error: {e}")
+        return ""
+
+
+# ════════════════════════════════════════════════════════════════════════════
+#  STEP 9 — Paraphrase functions
 # ════════════════════════════════════════════════════════════════════════════
 
 def paraphrase_title(title: str) -> str:
@@ -398,7 +433,7 @@ def paraphrase_title(title: str) -> str:
         if valid and sim > best_sim:
             best_sim, best_result = sim, result
 
-        time.sleep(1)  # respect 1 req/sec free tier limit
+        time.sleep(1)
 
     if best_result:
         print(f"  │  ✅ BEST: {best_result!r} (sim={best_sim:.3f})")
@@ -449,7 +484,7 @@ def paraphrase_description(text: str) -> str:
             print("❌ keeping original")
             rewritten.append(para)
 
-        time.sleep(1)  # respect 1 req/sec free tier limit
+        time.sleep(1)
 
     print(f"  │  RESULT: {success_count}/{len(paragraphs)} paragraphs rewritten")
     print(f"  └{'─'*58}")
@@ -595,7 +630,7 @@ def save_job(row: pd.Series, title: str, description: str) -> tuple:
                      "Temporary", "Freelance", "Internship", "Volunteer"]:
         get_or_create_term(f"{WP_BASE}/job_listing_type", jt_label)
 
-    location    = sanitize_text(str(row.get("Job Location",       "Kenya")))
+    location    = sanitize_text(str(row.get("Job Location",       "Nigeria")))
     raw_type    = sanitize_text(str(row.get("Job Type",           "Full-time")))
     job_type_s  = normalise_job_type(raw_type)
     company     = sanitize_text(str(row.get("Company Name",       "")))
@@ -784,6 +819,6 @@ def process_sheet():
 # ════════════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
-    print("\n🚀 Kenya MimusJobs — Starting with Mistral API…\n")
+    print("\n🚀 Nigeria MimusJobs — Starting with Mistral API…\n")
     process_sheet()
     print("\n✅ Done. All jobs processed.")
