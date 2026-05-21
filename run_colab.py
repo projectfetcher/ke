@@ -58,58 +58,51 @@ _root_logger.addHandler(_ch)
 logger = logging.getLogger(__name__)
 
 
-# ════════════════════════════════════════════════════════════════════════════
-#  STEP 3 — Secrets & Configuration
-#
-#  HOW TO SET SECRETS IN GOOGLE COLAB:
-#  1. Click the 🔑 key icon in the left sidebar (or go to Tools → Secrets)
-#  2. Add each secret by name and value
-#  3. Enable notebook access for each secret
-#
-#  Required secrets:
-#  ┌─────────────────────────┬──────────────────────────────────────────────┐
-#  │ Secret Name             │ Value                                        │
-#  ├─────────────────────────┼──────────────────────────────────────────────┤
-#  │ MISTRAL_API_KEY         │ Your Mistral API key                         │
-#  │ SHEET_ID                │ Google Sheet ID from the URL                 │
-#  │ WP_BASE_URL             │ e.g. https://yoursite.com/wp-json/wp/v2      │
-#  │ WP_USERNAME             │ Your WordPress username                      │
-#  │ WP_APP_PASSWORD         │ Your WordPress application password          │
-#  └─────────────────────────┴──────────────────────────────────────────────┘
-# ════════════════════════════════════════════════════════════════════════════
-
-from google.colab import userdata
-
 def get_secret(name: str, fallback: str = "") -> str:
-    """Read a secret from Colab Secrets, with an optional fallback."""
+    """
+    Read a secret from environment variables (GitHub Actions)
+    or Colab Secrets if running in Colab.
+    """
+    # Try Colab first (harmless if not in Colab)
     try:
+        from google.colab import userdata
         val = userdata.get(name)
         if val:
             return val.strip()
     except Exception:
         pass
+
+    # Try environment variable (GitHub Actions)
+    val = os.environ.get(name, "").strip()
+    if val:
+        return val
+
+    # Use fallback if provided
     if fallback:
         return fallback
+
     raise EnvironmentError(
         f"\n❌ Secret '{name}' not found.\n"
-        f"   Go to 🔑 Secrets in the left sidebar and add it.\n"
+        f"   GitHub: Settings → Secrets and variables → Actions → New secret\n"
+        f"   Colab : Add via the 🔑 Secrets panel in the left sidebar\n"
     )
 
+
 # ── Load all secrets ──────────────────────────────────────────────────────
-MISTRAL_API_KEY  = get_secret("MISTRAL_API_KEY")
-MISTRAL_MODEL    = "mistral-small-latest"
-MISTRAL_URL      = "https://api.mistral.ai/v1/chat/completions"
+MISTRAL_API_KEY = get_secret("MISTRAL_API_KEY")
+MISTRAL_MODEL   = "mistral-small-latest"
+MISTRAL_URL     = "https://api.mistral.ai/v1/chat/completions"
 
-SHEET_ID         = get_secret("SHEET_ID")
-SHEET_GID        = "0"
+SHEET_ID        = get_secret("SHEET_ID")
+SHEET_GID       = "0"
 
-_WP_BASE         = get_secret("WP_BASE_URL")   # e.g. https://yoursite.com/wp-json/wp/v2
-WP_BASE          = _WP_BASE.rstrip("/")
-WP_URL           = f"{WP_BASE}/job-listings"
-WP_COMPANY_URL   = f"{WP_BASE}/companies"
-WP_MEDIA_URL     = f"{WP_BASE}/media"
-WP_USERNAME      = get_secret("WP_USERNAME")
-WP_APP_PASSWORD  = get_secret("WP_APP_PASSWORD")
+_WP_BASE        = get_secret("WP_BASE_URL")
+WP_BASE         = _WP_BASE.rstrip("/")
+WP_URL          = f"{WP_BASE}/job-listings"
+WP_COMPANY_URL  = f"{WP_BASE}/companies"
+WP_MEDIA_URL    = f"{WP_BASE}/media"
+WP_USERNAME     = get_secret("WP_USERNAME")
+WP_APP_PASSWORD = get_secret("WP_APP_PASSWORD")
 
 # ── Non-sensitive config ──────────────────────────────────────────────────
 PROCESSED_IDS_FILE = "nigeria_processed_job_ids.csv"
@@ -167,7 +160,6 @@ def fetch_sheet_as_df(sheet_id: str, gid: str = "0") -> pd.DataFrame:
 
 def map_columns(df: pd.DataFrame) -> pd.DataFrame:
     col_lookup = {c.lower().strip(): c for c in df.columns}
-    rename_map = {}
 
     ALIASES = {
         "Job Title":          ["title", "position", "role", "vacancy", "job name"],
@@ -205,7 +197,6 @@ def map_columns(df: pd.DataFrame) -> pd.DataFrame:
             continue
         for alias in aliases:
             if alias in col_lookup:
-                rename_map[col_lookup[alias]] = internal
                 df = df.rename(columns={col_lookup[alias]: internal})
                 col_lookup = {c.lower().strip(): c for c in df.columns}
                 break
@@ -720,7 +711,43 @@ def save_job(row: pd.Series, title: str, description: str) -> tuple:
 
 
 # ════════════════════════════════════════════════════════════════════════════
-#  STEP 11 — Core processing
+#  STEP 11 — Company details fallback — Google then LinkedIn
+# ════════════════════════════════════════════════════════════════════════════
+
+def searchCompanyDetails(companyName: str) -> str:
+    try:
+        url  = "https://www.google.com/search?q=" + requests.utils.quote(companyName + " company about")
+        resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+        from bs4 import BeautifulSoup
+        soup    = BeautifulSoup(resp.text, "html.parser")
+        snippet = (soup.select_one("div.BNeawe")  or
+                   soup.select_one("span.aCOpRe") or
+                   soup.select_one("div.VwiC3b"))
+        if snippet and len(snippet.get_text(strip=True)) > 20:
+            return snippet.get_text(strip=True)
+    except Exception as e:
+        logger.error(f"Google search failed for {companyName}: {e}")
+
+    try:
+        slug = re.sub(r"[^a-z0-9-]", "-", companyName.lower())
+        url  = f"https://www.linkedin.com/company/{slug}"
+        resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+        from bs4 import BeautifulSoup
+        soup    = BeautifulSoup(resp.text, "html.parser")
+        snippet = (soup.select_one("p.core-section-container__info") or
+                   soup.select_one("section.summary p") or
+                   soup.find("meta", {"name": "description"}))
+        text = snippet.get("content", "") if snippet and snippet.name == "meta" else (snippet.get_text(strip=True) if snippet else "")
+        if text and len(text) > 20:
+            return text
+    except Exception as e:
+        logger.error(f"LinkedIn search failed for {companyName}: {e}")
+
+    return ""
+
+
+# ════════════════════════════════════════════════════════════════════════════
+#  STEP 12 — Core processing
 # ════════════════════════════════════════════════════════════════════════════
 
 def process_sheet():
@@ -815,7 +842,7 @@ def process_sheet():
 
 
 # ════════════════════════════════════════════════════════════════════════════
-#  STEP 12 — Entry point
+#  STEP 13 — Entry point
 # ════════════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
