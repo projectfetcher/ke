@@ -2,7 +2,7 @@ name: Run Kenya MimusJobs
 
 on:
   schedule:
-    - cron: "0 */3 * * *"
+    - cron: "41 11,23 * * *"
   workflow_dispatch:
 
 jobs:
