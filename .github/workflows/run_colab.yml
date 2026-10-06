@@ -1,21 +1,31 @@
-name: Run Kenya MimusJobs
+name: Run MimusJobs
 
 on:
   schedule:
     - cron: "41 11,23 * * *"
   workflow_dispatch:
 
+permissions:
+  contents: write   # needed to commit the tracker CSV back to the repo
+
+# Never let two runs overlap (they'd fight over the same tracker file)
+concurrency:
+  group: mimusjobs-${{ github.workflow }}
+  cancel-in-progress: false
+
 jobs:
   run-jobs:
     runs-on: ubuntu-latest
+    timeout-minutes: 350
 
-    # === THIS IS THE IMPORTANT PART ===
     env:
       MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
       SHEET_ID: ${{ secrets.SHEET_ID }}
       WP_BASE_URL: ${{ secrets.WP_BASE_URL }}
       WP_USERNAME: ${{ secrets.WP_USERNAME }}
       WP_APP_PASSWORD: ${{ secrets.WP_APP_PASSWORD }}
+      # Sets the tracker filename: Kenya → processed_jobs_kenya.csv
+      COUNTRY_NAME: Kenya
 
     steps:
       - name: Checkout repository
@@ -36,10 +46,21 @@ jobs:
       - name: Run job script
         run: python run_colab.py
 
+      # Safety net: the script already pushes the CSV after every posted job
+      - name: Commit updated tracker CSV
+        if: always()
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add processed_jobs_*.csv
+          git diff --cached --quiet || git commit -m "Update tracker CSV [skip ci]"
+          git pull --rebase --autostash || true
+          git push || true
+
       - name: Upload tracker CSV
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: processed-jobs-tracker
-          path: kenya_processed_job_ids.csv
+          path: processed_jobs_*.csv
           retention-days: 30
