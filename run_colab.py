@@ -79,6 +79,10 @@ WP_MEDIA_URL    = f"{WP_BASE}/media"
 WP_USERNAME     = get_secret("WP_USERNAME")
 WP_APP_PASSWORD = get_secret("WP_APP_PASSWORD")
 
+# Sent as a header on every WordPress request so Cloudflare can skip blocking.
+# Add a Cloudflare WAF custom rule: header "X-Internal-Bot-Key" equals this value → Skip.
+INTERNAL_BOT_KEY = os.environ.get("INTERNAL_BOT_KEY", "")
+
 # ── Country (set COUNTRY_NAME in the workflow; defaults to Kenya) ─────────
 COUNTRY_NAME = os.environ.get("COUNTRY_NAME", "").strip() or "Kenya"
 COUNTRY_SLUG = re.sub(r"[^a-z0-9]+", "_", COUNTRY_NAME.lower()).strip("_")
@@ -96,7 +100,7 @@ JOB_TYPE_MAPPING = {
     "internship": "internship", "intern": "internship",
     "volunteer": "volunteer",
 }
-print(f"✅ Secrets loaded successfully. Country: {COUNTRY_NAME} | Tracker: {PROCESSED_IDS_FILE}\n")
+print(f"✅ Secrets loaded successfully. Country: {COUNTRY_NAME} | Tracker: {PROCESSED_IDS_FILE} | Bot key: {'set' if INTERNAL_BOT_KEY else 'NOT set'}\n")
 
 # ════════════════════════════════════════════════════════════════════════════
 # STEP 4 — Column definitions
@@ -729,7 +733,11 @@ def paraphrase_tagline(text: str) -> str:
 # ════════════════════════════════════════════════════════════════════════════
 def wp_headers():
     token = base64.b64encode(f"{WP_USERNAME}:{WP_APP_PASSWORD}".encode()).decode()
-    return {"Authorization": f"Basic {token}", "Content-Type": "application/json"}
+    headers = {"Authorization": f"Basic {token}", "Content-Type": "application/json"}
+    # Cloudflare WAF bypass header for every WordPress request
+    if INTERNAL_BOT_KEY:
+        headers["X-Internal-Bot-Key"] = INTERNAL_BOT_KEY
+    return headers
 
 def upload_logo(logo_url: str):
     logo_url = sanitize_text(logo_url, is_url=True)
